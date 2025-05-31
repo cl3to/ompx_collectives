@@ -8,7 +8,7 @@ int main(int argc, char* argv[])
 {
 
     if (argc != 2) {
-        printf("You must specify the length of the buffer\n./ompx_scatter <length>\n");
+        printf("You must specify the length of the buffer\n./ompx_gather <length>\n");
         return 1;
     }
 
@@ -17,27 +17,16 @@ int main(int argc, char* argv[])
     int NumDevices = omp_get_num_devices();
     int HstDevice = omp_get_initial_device();
     void *DevicesPtrs[NumDevices];
-    int DstDevices[NumDevices];
+    int Devices[NumDevices];
 
     size_t Count = Size / NumDevices;
     size_t LengthPerDevice = Length / NumDevices;
 
     for(int DevIdx = 0; DevIdx < NumDevices; DevIdx++) {
         DevicesPtrs[DevIdx] = omp_target_alloc(Size, DevIdx);
-        DstDevices[DevIdx] = DevIdx;
+        Devices[DevIdx] = DevIdx;
     }
-
     int *HstPtr = (int *)malloc(Size);
-    unsigned long HstSum = 0;
-
-    for(int I = 0; I < Length; I++) {
-        HstPtr[I] = 1;
-        HstSum += HstPtr[I];
-    }
-
-    printf("Host: Sum = %lu\n", HstSum);
-
-    ompx_target_scatter(HstPtr, DevicesPtrs, Count, HstDevice, DstDevices, NumDevices);
 
     #pragma omp parallel
     #pragma omp single
@@ -50,13 +39,23 @@ int main(int argc, char* argv[])
             {
                 #pragma omp for
                 for(int I = 0; I < LengthPerDevice; I++) {
-                    DeviceSum += ((int*)DevicePtr)[I];
+                    ((int*) DevicePtr)[I] = 1;
+                    DeviceSum += ((int*) DevicePtr)[I];
                 }
-                printf("(Device=%d): Sum = %lu\n", DevIdx, DeviceSum);
+                printf("(Device=%d): Count = %lu\n", DevIdx, DeviceSum);
             }
         }
     }
 
+    ompx_target_gather(HstPtr, DevicesPtrs, Count, Devices, HstDevice, NumDevices);
+
+    unsigned long HstSum = 0;
+
+    for(int I = 0; I < Length; I++) {
+        HstSum += HstPtr[I];
+    }
+
+    printf("Host: Count = %lu\n", HstSum);
 
     free(HstPtr);
     for(int DevIdx = 0; DevIdx < NumDevices; DevIdx++) {

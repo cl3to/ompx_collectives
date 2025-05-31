@@ -2,13 +2,10 @@
 #include <stdlib.h>
 
 #include "omp.h"
-#include "ompx_collectives.h"
 
-int main(int argc, char* argv[])
-{
-
+int main(int argc, char* argv[]) {
     if (argc != 2) {
-        printf("You must specify the length of the buffer\n./ompx_gather <length>\n");
+        printf("You must specify the length of the buffer\n./omp_gather <length>\n");
         return 1;
     }
 
@@ -22,24 +19,20 @@ int main(int argc, char* argv[])
     size_t Count = Size / NumDevices;
     size_t LengthPerDevice = Length / NumDevices;
 
-    for(int DevIdx = 0; DevIdx < NumDevices; DevIdx++) {
-        DevicesPtrs[DevIdx] = omp_target_alloc(Size, DevIdx);
-        Devices[DevIdx] = DevIdx;
-    }
     int *HstPtr = (int *)malloc(Size);
 
     #pragma omp parallel
     #pragma omp single
     {
         unsigned long DeviceSum = 0;
+        int *DevicePtr = HstPtr;
         for(int DevIdx = 0; DevIdx < NumDevices; DevIdx++) {
-            void *DevicePtr = DevicesPtrs[DevIdx];
             #pragma omp target firstprivate(LengthPerDevice, DeviceSum, DevIdx)\
-                        is_device_ptr(DevicePtr)\
+                        map(from: DevicePtr[DevIdx*LengthPerDevice:LengthPerDevice])\
                         device(DevIdx) nowait
             {
                 #pragma omp for
-                for(int I = 0; I < LengthPerDevice; I++) {
+                for(int I = DevIdx*LengthPerDevice; I < DevIdx*LengthPerDevice+LengthPerDevice; I++) {
                     ((int*) DevicePtr)[I] = 1;
                     DeviceSum += ((int*) DevicePtr)[I];
                 }
@@ -47,8 +40,6 @@ int main(int argc, char* argv[])
             }
         }
     }
-
-    ompx_target_gather(HstPtr, DevicesPtrs, Count, Devices, HstDevice, NumDevices);
 
     unsigned long HstSum = 0;
 
@@ -59,9 +50,5 @@ int main(int argc, char* argv[])
     printf("Host: Count = %lu\n", HstSum);
 
     free(HstPtr);
-    for(int DevIdx = 0; DevIdx < NumDevices; DevIdx++) {
-         omp_target_free(DevicesPtrs[DevIdx], DevIdx);
-    }
 
-    return 0;
 }
